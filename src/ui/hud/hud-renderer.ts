@@ -465,7 +465,7 @@ export class HudRenderer implements IUiRenderer {
     this.renderSummaryModal(state);
     this.renderMainMenu(state);
     if (this.crosshair) {
-      this.crosshair.style.display = state.inMainMenu || state.raidEndSceneActive ? "none" : "block";
+      this.crosshair.style.display = state.inMainMenu || state.raidEndSceneActive || state.isAds ? "none" : "block";
     }
     this.renderHitFeedback(state);
     this.renderDeathOverlay(state);

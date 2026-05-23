@@ -31,6 +31,7 @@ interface ShotTrace {
   id: string;
   from: { x: number; y: number; z: number };
   to: { x: number; y: number; z: number };
+  colorHex: number;
   ttlSeconds: number;
 }
 
@@ -166,6 +167,7 @@ export class CombatSimulation {
   private flinchPitchOffset = 0;
   private flinchYawOffset = 0;
   private isAds = false;
+  private adsBlend = 0;
   private isReloading = false;
   private reloadRemainingSeconds = 0;
   private reloadPressedLastFrame = false;
@@ -224,6 +226,7 @@ export class CombatSimulation {
     this.stepExtractionAndSession(deltaSeconds);
     this.stepCrafting();
     this.stepShotTraces(deltaSeconds);
+    this.stepAdsBlend(deltaSeconds);
     this.stepRecoilRecovery(deltaSeconds);
     this.stepHitFeedback(deltaSeconds);
     this.stepDeathAnimation(deltaSeconds);
@@ -390,6 +393,7 @@ export class CombatSimulation {
     this.enemyStats.vest = this.createArmor(3);
     this.enemyDeathAnimationProgress = 0;
     this.enemyDeathAnimationActive = false;
+    this.adsBlend = 0;
     this.input.requestPointerLock();
   }
 
@@ -422,12 +426,17 @@ export class CombatSimulation {
     }));
   }
 
-  getShotTraces(): Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } }> {
+  getShotTraces(): Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; colorHex: number }> {
     return this.shotTraces.map((trace) => ({
       id: trace.id,
       from: trace.from,
       to: trace.to,
+      colorHex: trace.colorHex,
     }));
+  }
+
+  getAdsBlend(): number {
+    return this.adsBlend;
   }
 
   private stepMovement(deltaSeconds: number): void {
@@ -534,8 +543,8 @@ export class CombatSimulation {
     if (!didHitEnemy) {
       this.createShotTrace();
       // Recoil kick: lower while ADS for better control.
-      const missPitchKick = this.isAds ? 0.006 : 0.012;
-      const missYawKick = (Math.random() - 0.5) * (this.isAds ? 0.003 : 0.008);
+      const missPitchKick = 0.012 - this.adsBlend * 0.006;
+      const missYawKick = (Math.random() - 0.5) * (0.008 - this.adsBlend * 0.005);
       this.recoilPitchOffset += missPitchKick;
       this.recoilYawOffset += missYawKick;
       return;
@@ -560,15 +569,15 @@ export class CombatSimulation {
     this.createShotTrace();
 
     // Recoil kick: lower while ADS for better control.
-    const pitchKick = this.isAds ? 0.006 : 0.012;
-    const yawKick = (Math.random() - 0.5) * (this.isAds ? 0.003 : 0.008);
+    const pitchKick = 0.012 - this.adsBlend * 0.006;
+    const yawKick = (Math.random() - 0.5) * (0.008 - this.adsBlend * 0.005);
     this.recoilPitchOffset += pitchKick;
     this.recoilYawOffset += yawKick;
   }
 
   private stepMouseLook(): void {
     const look = this.input.consumeLookDelta();
-    const sensitivity = this.isAds ? 0.0014 : 0.0025;
+    const sensitivity = 0.0025 - this.adsBlend * 0.0011;
     const invertY = true;
     this.viewAngles.yaw += look.x * sensitivity;
     this.viewAngles.pitch += look.y * sensitivity * (invertY ? -1 : 1);
@@ -579,7 +588,18 @@ export class CombatSimulation {
   }
 
   private stepAimState(): void {
-    this.isAds = this.input.isPressed("aimMouse") && this.input.isPointerLocked() && !this.isReloading;
+    this.isAds =
+      this.input.isPressed("aimMouse") &&
+      this.input.isPointerLocked() &&
+      !this.isReloading &&
+      !this.isSprinting &&
+      this.sprintToFireDelayRemaining <= 0;
+  }
+
+  private stepAdsBlend(deltaSeconds: number): void {
+    const target = this.isAds ? 1 : 0;
+    const damping = Math.exp(-deltaSeconds * 18);
+    this.adsBlend = target + (this.adsBlend - target) * damping;
   }
 
   private stepReload(deltaSeconds: number): void {
@@ -601,7 +621,7 @@ export class CombatSimulation {
   }
 
   private stepRecoilRecovery(deltaSeconds: number): void {
-    const recovery = this.isAds ? 18 : 12;
+    const recovery = 12 + this.adsBlend * 6;
     const damp = Math.exp(-recovery * deltaSeconds);
     this.recoilPitchOffset *= damp;
     this.recoilYawOffset *= damp;
@@ -712,6 +732,28 @@ export class CombatSimulation {
         y: cameraOrigin.y + forward.y * hitDistance,
         z: cameraOrigin.z + forward.z * hitDistance,
       },
+      colorHex: 0xf8fafc,
+      ttlSeconds: 0.08,
+    });
+  }
+
+  private createEnemyShotTrace(target: { x: number; y: number; z: number }): void {
+    this.shotTraceCounter += 1;
+    const toTargetX = target.x - this.enemyX;
+    const toTargetZ = target.z;
+    const toTargetLength = Math.max(0.0001, Math.hypot(toTargetX, toTargetZ));
+    const dirX = toTargetX / toTargetLength;
+    const dirZ = toTargetZ / toTargetLength;
+    const enemyMuzzle = {
+      x: this.enemyX + dirX * 0.22,
+      y: 1.3,
+      z: dirZ * 0.22,
+    };
+    this.shotTraces.push({
+      id: `trace-${this.shotTraceCounter}`,
+      from: enemyMuzzle,
+      to: target,
+      colorHex: 0x38bdf8,
       ttlSeconds: 0.08,
     });
   }
@@ -818,6 +860,8 @@ export class CombatSimulation {
     }
 
     this.enemyFireCooldown = 0.9;
+    const playerAimPoint = { x: this.player.x, y: 1.45 + this.getPlayerHeightOffset(), z: this.player.y };
+    this.createEnemyShotTrace(playerAimPoint);
     const hitLocation = this.pickHitLocation();
     const incomingDamage = calculateDamage({
       penetrationLevel: 2,

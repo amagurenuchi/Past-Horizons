@@ -10,6 +10,10 @@ export class ThreeRenderer {
   private enemyModelRoot: THREE.Group | null = null;
   private enemyHelmetMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> | null = null;
   private enemyVestMesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
+  private enemyHolsterWeaponMesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
+  private firstPersonWeaponRoot: THREE.Group | null = null;
+  private firstPersonWeaponBodyMesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
+  private firstPersonWeaponBarrelMesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
   private menuPlayerBody: THREE.Mesh<THREE.CapsuleGeometry, THREE.MeshStandardMaterial> | null = null;
   private menuHelmet: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> | null = null;
   private menuVest: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
@@ -26,6 +30,7 @@ export class ThreeRenderer {
 
     const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.1, 1000);
     camera.position.set(0, 1.5, 4);
+    scene.add(camera);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -55,6 +60,22 @@ export class ThreeRenderer {
     const enemyModel = this.createHumanoid(0x7f1d1d, 0xb91c1c, 0x450a0a);
     enemyModel.root.position.set(8, 0, 0);
     scene.add(enemyModel.root);
+    enemyModel.holsterWeapon.position.set(0.22, 1.28, -0.16);
+    enemyModel.holsterWeapon.rotation.set(0, 0, 0.1);
+
+    const firstPersonWeaponRoot = new THREE.Group();
+    const firstPersonWeaponBody = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.16, 0.46),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65, metalness: 0.2 }),
+    );
+    const firstPersonWeaponBarrel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.08, 0.48),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.25 }),
+    );
+    firstPersonWeaponBody.position.set(0.04, -0.04, -0.38);
+    firstPersonWeaponBarrel.position.set(0.04, -0.01, -0.72);
+    firstPersonWeaponRoot.add(firstPersonWeaponBody, firstPersonWeaponBarrel);
+    camera.add(firstPersonWeaponRoot);
 
     const menuPlayerBody = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.45, 1.2, 8, 16),
@@ -94,6 +115,10 @@ export class ThreeRenderer {
     this.enemyModelRoot = enemyModel.root;
     this.enemyHelmetMesh = enemyModel.helmet;
     this.enemyVestMesh = enemyModel.vest;
+    this.enemyHolsterWeaponMesh = enemyModel.holsterWeapon;
+    this.firstPersonWeaponRoot = firstPersonWeaponRoot;
+    this.firstPersonWeaponBodyMesh = firstPersonWeaponBody;
+    this.firstPersonWeaponBarrelMesh = firstPersonWeaponBarrel;
     this.menuPlayerBody = menuPlayerBody;
     this.menuHelmet = menuHelmet;
     this.menuVest = menuVest;
@@ -118,13 +143,14 @@ export class ThreeRenderer {
     enemy: { x: number; y: number };
     enemyDeathAnimation: { active: boolean; progress: number };
     viewAngles: { yaw: number; pitch: number };
-    shotTraces: Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } }>;
+    shotTraces: Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; colorHex: number }>;
     extractionMarkers: Array<{ id: string; x: number; y: number; active: boolean }>;
     inMainMenu: boolean;
     raidEndSceneActive: boolean;
     equippedHelmetId: string | null;
     equippedVestId: string | null;
     equippedPrimaryWeaponName: string;
+    adsBlend: number;
     deathAnimationActive: boolean;
     deathAnimationProgress: number;
     deathBlackout: number;
@@ -137,6 +163,10 @@ export class ThreeRenderer {
       !this.playerVestMesh ||
       !this.enemyHelmetMesh ||
       !this.enemyVestMesh ||
+      !this.enemyHolsterWeaponMesh ||
+      !this.firstPersonWeaponRoot ||
+      !this.firstPersonWeaponBodyMesh ||
+      !this.firstPersonWeaponBarrelMesh ||
       !this.scene ||
       !this.menuPlayerBody ||
       !this.menuHelmet ||
@@ -155,9 +185,18 @@ export class ThreeRenderer {
       this.enemyModelRoot.rotation.z = -Math.PI * 0.5 * fall;
       this.enemyModelRoot.position.y = -0.08 * fall;
     } else {
+      const toPlayerX = state.player.x - state.enemy.x;
+      const toPlayerZ = state.player.y - state.enemy.y;
+      const yawToPlayer = Math.atan2(toPlayerX, -toPlayerZ);
+      this.enemyModelRoot.rotation.y = yawToPlayer;
       this.enemyModelRoot.rotation.z = 0;
       this.enemyModelRoot.position.y = 0;
-      this.enemyModelRoot.rotation.y = Math.sin(state.enemy.x * 0.7) * 0.3;
+      const horizontalDistance = Math.max(0.001, Math.hypot(toPlayerX, toPlayerZ));
+      const enemyMuzzleHeight = 1.3;
+      const playerAimHeight = 1.45 + state.player.jumpOffset;
+      const pitchToPlayer = Math.atan2(playerAimHeight - enemyMuzzleHeight, horizontalDistance);
+      this.enemyHolsterWeaponMesh.position.set(0.22, 1.28, -0.16);
+      this.enemyHolsterWeaponMesh.rotation.set(-pitchToPlayer, 0, 0.1);
     }
     this.syncExtractionMarkers(state.extractionMarkers);
     this.syncShotTraces(state.shotTraces);
@@ -175,6 +214,11 @@ export class ThreeRenderer {
     this.menuHelmet.material.color.setHex(this.colorFromGear(state.equippedHelmetId));
     this.menuVest.material.color.setHex(this.colorFromGear(state.equippedVestId));
     this.menuWeapon.scale.x = state.equippedPrimaryWeaponName.toLowerCase().includes("smg") ? 0.8 : 1.1;
+    const isSmg = state.equippedPrimaryWeaponName.toLowerCase().includes("smg");
+    const firstPersonScale = isSmg ? 0.86 : 1.08;
+    this.firstPersonWeaponBodyMesh.scale.z = firstPersonScale;
+    this.firstPersonWeaponBarrelMesh.scale.z = isSmg ? 0.86 : 1.1;
+    this.enemyHolsterWeaponMesh.scale.z = firstPersonScale;
     this.playerHelmetMesh.material.color.setHex(this.colorFromGear(state.equippedHelmetId));
     this.playerVestMesh.material.color.setHex(this.colorFromGear(state.equippedVestId));
     this.enemyHelmetMesh.material.color.setHex(this.colorFromGear("helmet-t3"));
@@ -201,6 +245,19 @@ export class ThreeRenderer {
       const dirZ = -Math.cos(state.viewAngles.yaw) * cosPitch;
       camera.lookAt(state.player.x + dirX, cameraHeight + dirY, state.player.y + dirZ);
     }
+    const weaponVisible = !state.inMainMenu && !state.deathAnimationActive && !state.raidEndSceneActive;
+    this.firstPersonWeaponRoot.visible = weaponVisible;
+    const adsOffset = state.adsBlend;
+    this.firstPersonWeaponRoot.position.set(
+      0.34 - adsOffset * 0.33,
+      -0.29 + adsOffset * 0.11,
+      -0.48 - adsOffset * 0.24,
+    );
+    this.firstPersonWeaponRoot.rotation.set(
+      0.03 - adsOffset * 0.025,
+      -0.06 + adsOffset * 0.06,
+      -0.04 + adsOffset * 0.04,
+    );
   }
 
   dispose(): void {
@@ -223,6 +280,10 @@ export class ThreeRenderer {
     this.enemyModelRoot = null;
     this.enemyHelmetMesh = null;
     this.enemyVestMesh = null;
+    this.enemyHolsterWeaponMesh = null;
+    this.firstPersonWeaponRoot = null;
+    this.firstPersonWeaponBodyMesh = null;
+    this.firstPersonWeaponBarrelMesh = null;
     this.menuPlayerBody = null;
     this.menuHelmet = null;
     this.menuVest = null;
@@ -266,7 +327,7 @@ export class ThreeRenderer {
   }
 
   private syncShotTraces(
-    traces: Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } }>,
+    traces: Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; colorHex: number }>,
   ): void {
     if (!this.scene) {
       return;
@@ -286,11 +347,12 @@ export class ThreeRenderer {
       let line = this.shotTraceSegments.get(trace.id);
       if (!line) {
         const geometry = new THREE.BufferGeometry();
-        const material = new THREE.LineBasicMaterial({ color: 0xf8fafc, transparent: true, opacity: 0.85 });
+        const material = new THREE.LineBasicMaterial({ color: trace.colorHex, transparent: true, opacity: 0.85 });
         line = new THREE.Line(geometry, material);
         this.scene.add(line);
         this.shotTraceSegments.set(trace.id, line);
       }
+      line.material.color.setHex(trace.colorHex);
 
       line.geometry.setFromPoints([
         new THREE.Vector3(trace.from.x, trace.from.y, trace.from.z),
@@ -320,6 +382,7 @@ export class ThreeRenderer {
     root: THREE.Group;
     helmet: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
     vest: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+    holsterWeapon: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
   } {
     const root = new THREE.Group();
     const body = new THREE.Mesh(
@@ -353,7 +416,11 @@ export class ThreeRenderer {
     legL.position.set(-0.14, 0.45, 0);
     const legR = legL.clone();
     legR.position.x = 0.14;
-    root.add(body, helmet, vest, armL, armR, legL, legR);
-    return { root, helmet, vest };
+    const holsterWeapon = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.14, 0.46),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7, metalness: 0.15 }),
+    );
+    root.add(body, helmet, vest, armL, armR, legL, legR, holsterWeapon);
+    return { root, helmet, vest, holsterWeapon };
   }
 }

@@ -82,6 +82,7 @@ export class FrameOrchestrator {
       equippedHelmetId: snapshot.equippedHelmetId,
       equippedVestId: snapshot.equippedVestId,
       equippedPrimaryWeaponName: snapshot.equippedPrimaryWeaponName,
+      adsBlend: this.simulation.getAdsBlend(),
       deathAnimationActive: snapshot.deathAnimationActive,
       deathAnimationProgress: snapshot.deathAnimationProgress,
       deathBlackout: snapshot.deathBlackout,
