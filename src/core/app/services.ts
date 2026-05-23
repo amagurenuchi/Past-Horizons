@@ -93,6 +93,31 @@ export interface HudState {
   currentPenetrationLevel: number;
   currentMagazine: string;
   isAds: boolean;
+  stamina: number;
+  maxStamina: number;
+  isCrouching: boolean;
+  isSprinting: boolean;
+  playerHitIndicatorAngleDeg: number;
+  playerHitFeedbackStrength: number;
+  playerHitFeedbackType: "none" | "health" | "blocked";
+  playerArmorCrackFlash: number;
+  enemyHitCrosshairAngleDeg: number;
+  enemyHitFeedbackStrength: number;
+  enemyHitHeadshot: boolean;
+  enemyHitBlockedArmor: "none" | "helmet" | "vest";
+  deathAnimationActive: boolean;
+  deathAnimationProgress: number;
+  deathBlackout: number;
+  raidEndSceneActive: boolean;
+  raidEndScreenTitle: string;
+  raidEndScreenSubtitle: string;
+  raidEndScreenIndex: number;
+  raidEndScreenTotal: number;
+  raidEndShowDamageReport: boolean;
+  raidEndDamageLines: string[];
+  raidEndBackpackItems: string[];
+  raidEndStashItems: string[];
+  raidEndOverviewLines: string[];
 }
 
 export interface ISceneLifecycle {

@@ -6,11 +6,11 @@ export class BrowserInputAdapter implements IInputService {
   private lookDelta = { x: 0, y: 0 };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    this.pressedCodes.add(event.code);
+    this.pressedCodes.add(this.normalizeCode(event.code));
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
-    this.pressedCodes.delete(event.code);
+    this.pressedCodes.delete(this.normalizeCode(event.code));
   };
 
   private readonly onMouseDown = (event: MouseEvent): void => {
@@ -86,6 +86,17 @@ export class BrowserInputAdapter implements IInputService {
 
   isPointerLocked(): boolean {
     return document.pointerLockElement !== null;
+  }
+
+  private normalizeCode(code: string): string {
+    if (code === "ControlRight") {
+      return "ControlLeft";
+    }
+    if (code === "ShiftRight") {
+      return "ShiftLeft";
+    }
+
+    return code;
   }
 
   dispose(): void {

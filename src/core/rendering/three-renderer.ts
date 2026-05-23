@@ -4,8 +4,12 @@ export class ThreeRenderer {
   private renderer: THREE.WebGLRenderer | null = null;
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
-  private cube: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
-  private enemyCube: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
+  private playerModelRoot: THREE.Group | null = null;
+  private playerHelmetMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> | null = null;
+  private playerVestMesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
+  private enemyModelRoot: THREE.Group | null = null;
+  private enemyHelmetMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> | null = null;
+  private enemyVestMesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
   private menuPlayerBody: THREE.Mesh<THREE.CapsuleGeometry, THREE.MeshStandardMaterial> | null = null;
   private menuHelmet: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> | null = null;
   private menuVest: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial> | null = null;
@@ -44,19 +48,13 @@ export class ThreeRenderer {
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x22c55e }),
-    );
-    cube.position.y = 1;
-    scene.add(cube);
+    const playerModel = this.createHumanoid(0x9ca3af, 0x64748b, 0x475569);
+    playerModel.root.position.set(0, 0, 0);
+    scene.add(playerModel.root);
 
-    const enemyCube = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xef4444 }),
-    );
-    enemyCube.position.set(8, 1, 0);
-    scene.add(enemyCube);
+    const enemyModel = this.createHumanoid(0x7f1d1d, 0xb91c1c, 0x450a0a);
+    enemyModel.root.position.set(8, 0, 0);
+    scene.add(enemyModel.root);
 
     const menuPlayerBody = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.45, 1.2, 8, 16),
@@ -90,8 +88,12 @@ export class ThreeRenderer {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
-    this.cube = cube;
-    this.enemyCube = enemyCube;
+    this.playerModelRoot = playerModel.root;
+    this.playerHelmetMesh = playerModel.helmet;
+    this.playerVestMesh = playerModel.vest;
+    this.enemyModelRoot = enemyModel.root;
+    this.enemyHelmetMesh = enemyModel.helmet;
+    this.enemyVestMesh = enemyModel.vest;
     this.menuPlayerBody = menuPlayerBody;
     this.menuHelmet = menuHelmet;
     this.menuVest = menuVest;
@@ -101,29 +103,40 @@ export class ThreeRenderer {
   }
 
   render(elapsedSeconds: number): void {
-    if (!this.renderer || !this.scene || !this.camera || !this.cube) {
+    if (!this.renderer || !this.scene || !this.camera) {
       return;
     }
 
-    this.cube.rotation.y = elapsedSeconds * 0.75;
+    if (this.enemyModelRoot) {
+      this.enemyModelRoot.position.y = Math.sin(elapsedSeconds * 2.8) * 0.03;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 
   updateTransforms(state: {
-    player: { x: number; y: number };
+    player: { x: number; y: number; jumpOffset: number };
     enemy: { x: number; y: number };
+    enemyDeathAnimation: { active: boolean; progress: number };
     viewAngles: { yaw: number; pitch: number };
     shotTraces: Array<{ id: string; from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } }>;
     extractionMarkers: Array<{ id: string; x: number; y: number; active: boolean }>;
     inMainMenu: boolean;
+    raidEndSceneActive: boolean;
     equippedHelmetId: string | null;
     equippedVestId: string | null;
     equippedPrimaryWeaponName: string;
+    deathAnimationActive: boolean;
+    deathAnimationProgress: number;
+    deathBlackout: number;
   }): void {
     if (
       !this.camera ||
-      !this.cube ||
-      !this.enemyCube ||
+      !this.playerModelRoot ||
+      !this.enemyModelRoot ||
+      !this.playerHelmetMesh ||
+      !this.playerVestMesh ||
+      !this.enemyHelmetMesh ||
+      !this.enemyVestMesh ||
       !this.scene ||
       !this.menuPlayerBody ||
       !this.menuHelmet ||
@@ -135,14 +148,23 @@ export class ThreeRenderer {
 
     const camera = this.camera;
 
-    this.cube.position.set(state.player.x, 1, state.player.y);
-    this.enemyCube.position.set(state.enemy.x, 1, state.enemy.y);
+    this.playerModelRoot.position.set(state.player.x, state.player.jumpOffset, state.player.y);
+    this.enemyModelRoot.position.set(state.enemy.x, 0, state.enemy.y);
+    if (state.enemyDeathAnimation.active) {
+      const fall = Math.min(1, state.enemyDeathAnimation.progress);
+      this.enemyModelRoot.rotation.z = -Math.PI * 0.5 * fall;
+      this.enemyModelRoot.position.y = -0.08 * fall;
+    } else {
+      this.enemyModelRoot.rotation.z = 0;
+      this.enemyModelRoot.position.y = 0;
+      this.enemyModelRoot.rotation.y = Math.sin(state.enemy.x * 0.7) * 0.3;
+    }
     this.syncExtractionMarkers(state.extractionMarkers);
     this.syncShotTraces(state.shotTraces);
-    this.cube.visible = !state.inMainMenu;
-    this.enemyCube.visible = !state.inMainMenu;
+    this.playerModelRoot.visible = !state.inMainMenu && state.deathAnimationActive;
+    this.enemyModelRoot.visible = !state.inMainMenu && !state.raidEndSceneActive;
     for (const marker of this.extractionMarkers.values()) {
-      marker.visible = !state.inMainMenu;
+      marker.visible = !state.inMainMenu && !state.raidEndSceneActive;
     }
 
     this.menuPlayerBody.visible = state.inMainMenu;
@@ -150,25 +172,34 @@ export class ThreeRenderer {
     this.menuVest.visible = state.inMainMenu;
     this.menuWeapon.visible = state.inMainMenu;
 
-    // Hide the player proxy mesh in first-person to prevent clipping/body visibility.
-    this.cube.visible = false;
-
     this.menuHelmet.material.color.setHex(this.colorFromGear(state.equippedHelmetId));
     this.menuVest.material.color.setHex(this.colorFromGear(state.equippedVestId));
     this.menuWeapon.scale.x = state.equippedPrimaryWeaponName.toLowerCase().includes("smg") ? 0.8 : 1.1;
+    this.playerHelmetMesh.material.color.setHex(this.colorFromGear(state.equippedHelmetId));
+    this.playerVestMesh.material.color.setHex(this.colorFromGear(state.equippedVestId));
+    this.enemyHelmetMesh.material.color.setHex(this.colorFromGear("helmet-t3"));
+    this.enemyVestMesh.material.color.setHex(this.colorFromGear("vest-t3"));
 
     if (state.inMainMenu) {
       // Menu camera: frame the equipment mannequin.
       camera.position.set(0, 2.0, 2.8);
       camera.lookAt(0, 1.4, -2);
+    } else if (state.deathAnimationActive) {
+      const fall = Math.min(1, state.deathAnimationProgress);
+      this.playerModelRoot.rotation.x = -Math.PI * 0.5 * fall;
+      this.playerModelRoot.position.y = Math.max(-0.15, state.player.jumpOffset - fall * 0.15);
+      camera.position.set(state.player.x, 1.65 + (1 - fall) * 0.5, state.player.y + 2.8 - fall * 1.4);
+      camera.lookAt(state.player.x, 1.4 - fall * 0.35, state.player.y);
     } else {
+      this.playerModelRoot.rotation.x = 0;
       // First-person camera: head-height camera with mouse-driven yaw/pitch.
-      camera.position.set(state.player.x, 1.65, state.player.y);
+      const cameraHeight = 1.65 + state.player.jumpOffset;
+      camera.position.set(state.player.x, cameraHeight, state.player.y);
       const cosPitch = Math.cos(state.viewAngles.pitch);
       const dirX = Math.sin(state.viewAngles.yaw) * cosPitch;
       const dirY = Math.sin(state.viewAngles.pitch);
       const dirZ = -Math.cos(state.viewAngles.yaw) * cosPitch;
-      camera.lookAt(state.player.x + dirX, 1.65 + dirY, state.player.y + dirZ);
+      camera.lookAt(state.player.x + dirX, cameraHeight + dirY, state.player.y + dirZ);
     }
   }
 
@@ -186,8 +217,12 @@ export class ThreeRenderer {
     this.renderer = null;
     this.scene = null;
     this.camera = null;
-    this.cube = null;
-    this.enemyCube = null;
+    this.playerModelRoot = null;
+    this.playerHelmetMesh = null;
+    this.playerVestMesh = null;
+    this.enemyModelRoot = null;
+    this.enemyHelmetMesh = null;
+    this.enemyVestMesh = null;
     this.menuPlayerBody = null;
     this.menuHelmet = null;
     this.menuVest = null;
@@ -275,5 +310,50 @@ export class ThreeRenderer {
     if (gearId.includes("t3")) return 0x2563eb;
     if (gearId.includes("t2")) return 0x16a34a;
     return 0xf8fafc;
+  }
+
+  private createHumanoid(
+    bodyColor: number,
+    helmetColor: number,
+    vestColor: number,
+  ): {
+    root: THREE.Group;
+    helmet: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+    vest: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+  } {
+    const root = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.25, 0.75, 8, 10),
+      new THREE.MeshStandardMaterial({ color: bodyColor }),
+    );
+    body.position.y = 1.1;
+    const helmet = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 14, 14),
+      new THREE.MeshStandardMaterial({ color: helmetColor }),
+    );
+    helmet.position.y = 1.72;
+    const vest = new THREE.Mesh(
+      new THREE.BoxGeometry(0.54, 0.48, 0.34),
+      new THREE.MeshStandardMaterial({ color: vestColor }),
+    );
+    vest.position.y = 1.15;
+    const armL = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.08, 0.46, 5, 8),
+      new THREE.MeshStandardMaterial({ color: bodyColor }),
+    );
+    armL.position.set(-0.31, 1.2, 0);
+    armL.rotation.z = 0.18;
+    const armR = armL.clone();
+    armR.position.x = 0.31;
+    armR.rotation.z = -0.18;
+    const legL = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.1, 0.52, 5, 8),
+      new THREE.MeshStandardMaterial({ color: bodyColor }),
+    );
+    legL.position.set(-0.14, 0.45, 0);
+    const legR = legL.clone();
+    legR.position.x = 0.14;
+    root.add(body, helmet, vest, armL, armR, legL, legR);
+    return { root, helmet, vest };
   }
 }

@@ -20,7 +20,9 @@ export async function bootstrapApplication(root: HTMLElement): Promise<void> {
   input.bind("moveBackward", "KeyS");
   input.bind("moveLeft", "KeyA");
   input.bind("moveRight", "KeyD");
-  input.bind("shoot", "Space");
+  input.bind("jump", "Space");
+  input.bind("crouch", "ControlLeft");
+  input.bind("sprint", "ShiftLeft");
   input.bind("shootMouse", "MouseLeft");
   input.bind("aimMouse", "MouseRight");
   input.bind("reload", "KeyR");
@@ -30,6 +32,7 @@ export async function bootstrapApplication(root: HTMLElement): Promise<void> {
   input.bind("pickupLoot", "KeyF");
   input.bind("searchLoot", "KeyV");
   input.bind("craftItem", "KeyC");
+  input.bind("advanceRaidEndScreen", "Enter");
 
   ui.mount(root);
   three.initialize(root);

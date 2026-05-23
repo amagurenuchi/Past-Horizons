@@ -18,12 +18,26 @@ export class HudRenderer implements IUiRenderer {
   private raidEl: HTMLSpanElement | null = null;
   private progressionEl: HTMLSpanElement | null = null;
   private promptEl: HTMLSpanElement | null = null;
+  private staminaBarFill: HTMLDivElement | null = null;
+  private staminaBarLabel: HTMLSpanElement | null = null;
   private weaponPanel: HTMLDivElement | null = null;
   private summaryModal: HTMLDivElement | null = null;
   private mainMenuOverlay: HTMLDivElement | null = null;
   private stashButton: HTMLButtonElement | null = null;
   private startButton: HTMLButtonElement | null = null;
   private crosshair: HTMLDivElement | null = null;
+  private crosshairVertical: HTMLDivElement | null = null;
+  private crosshairHorizontal: HTMLDivElement | null = null;
+  private crosshairHitMarker: HTMLDivElement | null = null;
+  private crosshairHitMarkerTop: HTMLDivElement | null = null;
+  private crosshairHitMarkerRight: HTMLDivElement | null = null;
+  private crosshairHitMarkerBottom: HTMLDivElement | null = null;
+  private crosshairHitMarkerLeft: HTMLDivElement | null = null;
+  private playerHitOverlay: HTMLDivElement | null = null;
+  private playerHitArrow: HTMLDivElement | null = null;
+  private armorCrackOverlay: HTMLDivElement | null = null;
+  private deathBlackoutOverlay: HTMLDivElement | null = null;
+  private raidEndScene: HTMLDivElement | null = null;
   private inventoryBridge: InventoryBridge | null = null;
 
   mount(container: HTMLElement): void {
@@ -52,6 +66,24 @@ export class HudRenderer implements IUiRenderer {
     const progressionEl = document.createElement("span");
     const promptEl = document.createElement("span");
     root.append(fpsEl, fixedStepEl, playerEl, enemyEl, ammoEl, inventoryEl, lootEl, raidEl, progressionEl, promptEl);
+
+    const staminaWrap = document.createElement("div");
+    staminaWrap.style.display = "grid";
+    staminaWrap.style.gap = "3px";
+    staminaWrap.style.width = "220px";
+    const staminaBar = document.createElement("div");
+    staminaBar.style.height = "8px";
+    staminaBar.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    staminaBar.style.background = "rgba(15, 23, 42, 0.85)";
+    const staminaBarFill = document.createElement("div");
+    staminaBarFill.style.height = "100%";
+    staminaBarFill.style.width = "100%";
+    staminaBarFill.style.background = "#22c55e";
+    staminaBar.appendChild(staminaBarFill);
+    const staminaBarLabel = document.createElement("span");
+    staminaBarLabel.style.color = "#cbd5e1";
+    staminaWrap.append(staminaBarLabel, staminaBar);
+    root.appendChild(staminaWrap);
     container.appendChild(root);
 
     const inventoryPanel = document.createElement("div");
@@ -140,10 +172,126 @@ export class HudRenderer implements IUiRenderer {
     crosshair.style.zIndex = "76";
     crosshair.style.pointerEvents = "none";
     crosshair.style.display = "none";
-    crosshair.innerHTML =
-      '<div style="position:absolute;left:8px;top:0;width:2px;height:18px;background:#f8fafc;"></div>' +
-      '<div style="position:absolute;left:0;top:8px;width:18px;height:2px;background:#f8fafc;"></div>';
+    const crosshairVertical = document.createElement("div");
+    crosshairVertical.style.position = "absolute";
+    crosshairVertical.style.left = "8px";
+    crosshairVertical.style.top = "0";
+    crosshairVertical.style.width = "2px";
+    crosshairVertical.style.height = "18px";
+    crosshairVertical.style.background = "#f8fafc";
+    const crosshairHorizontal = document.createElement("div");
+    crosshairHorizontal.style.position = "absolute";
+    crosshairHorizontal.style.left = "0";
+    crosshairHorizontal.style.top = "8px";
+    crosshairHorizontal.style.width = "18px";
+    crosshairHorizontal.style.height = "2px";
+    crosshairHorizontal.style.background = "#f8fafc";
+    crosshair.append(crosshairVertical, crosshairHorizontal);
     container.appendChild(crosshair);
+
+    const crosshairHitMarker = document.createElement("div");
+    crosshairHitMarker.style.position = "absolute";
+    crosshairHitMarker.style.left = "50%";
+    crosshairHitMarker.style.top = "50%";
+    crosshairHitMarker.style.width = "28px";
+    crosshairHitMarker.style.height = "28px";
+    crosshairHitMarker.style.pointerEvents = "none";
+    crosshairHitMarker.style.zIndex = "76";
+    crosshairHitMarker.style.opacity = "0";
+    crosshairHitMarker.style.transform = "translate(-50%, -50%)";
+    const crosshairHitMarkerTop = document.createElement("div");
+    crosshairHitMarkerTop.style.position = "absolute";
+    crosshairHitMarkerTop.style.left = "17px";
+    crosshairHitMarkerTop.style.top = "7px";
+    crosshairHitMarkerTop.style.width = "8px";
+    crosshairHitMarkerTop.style.height = "2px";
+    crosshairHitMarkerTop.style.background = "#f8fafc";
+    crosshairHitMarkerTop.style.transform = "rotate(45deg)";
+    const crosshairHitMarkerRight = document.createElement("div");
+    crosshairHitMarkerRight.style.position = "absolute";
+    crosshairHitMarkerRight.style.left = "17px";
+    crosshairHitMarkerRight.style.top = "17px";
+    crosshairHitMarkerRight.style.width = "8px";
+    crosshairHitMarkerRight.style.height = "2px";
+    crosshairHitMarkerRight.style.background = "#f8fafc";
+    crosshairHitMarkerRight.style.transform = "rotate(-45deg)";
+    const crosshairHitMarkerBottom = document.createElement("div");
+    crosshairHitMarkerBottom.style.position = "absolute";
+    crosshairHitMarkerBottom.style.left = "3px";
+    crosshairHitMarkerBottom.style.top = "17px";
+    crosshairHitMarkerBottom.style.width = "8px";
+    crosshairHitMarkerBottom.style.height = "2px";
+    crosshairHitMarkerBottom.style.background = "#f8fafc";
+    crosshairHitMarkerBottom.style.transform = "rotate(45deg)";
+    const crosshairHitMarkerLeft = document.createElement("div");
+    crosshairHitMarkerLeft.style.position = "absolute";
+    crosshairHitMarkerLeft.style.left = "3px";
+    crosshairHitMarkerLeft.style.top = "7px";
+    crosshairHitMarkerLeft.style.width = "8px";
+    crosshairHitMarkerLeft.style.height = "2px";
+    crosshairHitMarkerLeft.style.background = "#f8fafc";
+    crosshairHitMarkerLeft.style.transform = "rotate(-45deg)";
+    crosshairHitMarker.append(
+      crosshairHitMarkerTop,
+      crosshairHitMarkerRight,
+      crosshairHitMarkerBottom,
+      crosshairHitMarkerLeft,
+    );
+    container.appendChild(crosshairHitMarker);
+
+    const playerHitOverlay = document.createElement("div");
+    playerHitOverlay.style.position = "absolute";
+    playerHitOverlay.style.inset = "0";
+    playerHitOverlay.style.background = "rgba(239,68,68,0)";
+    playerHitOverlay.style.pointerEvents = "none";
+    playerHitOverlay.style.zIndex = "77";
+    container.appendChild(playerHitOverlay);
+
+    const playerHitArrow = document.createElement("div");
+    playerHitArrow.style.position = "absolute";
+    playerHitArrow.style.left = "50%";
+    playerHitArrow.style.top = "50%";
+    playerHitArrow.style.transformOrigin = "50% 50%";
+    playerHitArrow.style.color = "#f8fafc";
+    playerHitArrow.style.fontSize = "22px";
+    playerHitArrow.style.fontWeight = "700";
+    playerHitArrow.style.opacity = "0";
+    playerHitArrow.style.pointerEvents = "none";
+    playerHitArrow.style.zIndex = "78";
+    playerHitArrow.textContent = "▲";
+    container.appendChild(playerHitArrow);
+
+    const armorCrackOverlay = document.createElement("div");
+    armorCrackOverlay.style.position = "absolute";
+    armorCrackOverlay.style.inset = "0";
+    armorCrackOverlay.style.pointerEvents = "none";
+    armorCrackOverlay.style.backgroundImage =
+      "linear-gradient(130deg, transparent 35%, rgba(248,250,252,0.5) 36%, transparent 38%)," +
+      "linear-gradient(50deg, transparent 48%, rgba(248,250,252,0.45) 49%, transparent 51%)," +
+      "linear-gradient(200deg, transparent 54%, rgba(248,250,252,0.4) 55%, transparent 57%)";
+    armorCrackOverlay.style.opacity = "0";
+    armorCrackOverlay.style.zIndex = "79";
+    container.appendChild(armorCrackOverlay);
+
+    const deathBlackoutOverlay = document.createElement("div");
+    deathBlackoutOverlay.style.position = "absolute";
+    deathBlackoutOverlay.style.inset = "0";
+    deathBlackoutOverlay.style.pointerEvents = "none";
+    deathBlackoutOverlay.style.background = "rgba(0, 0, 0, 0)";
+    deathBlackoutOverlay.style.zIndex = "81";
+    container.appendChild(deathBlackoutOverlay);
+
+    const raidEndScene = document.createElement("div");
+    raidEndScene.style.position = "absolute";
+    raidEndScene.style.inset = "0";
+    raidEndScene.style.display = "none";
+    raidEndScene.style.padding = "32px";
+    raidEndScene.style.zIndex = "82";
+    raidEndScene.style.background =
+      "radial-gradient(circle at 15% 20%, rgba(14,116,144,0.2), transparent 45%), rgba(1,4,9,0.97)";
+    raidEndScene.style.color = "#e2e8f0";
+    raidEndScene.style.fontFamily = "monospace";
+    container.appendChild(raidEndScene);
 
     this.root = root;
     this.inventoryPanel = inventoryPanel;
@@ -157,12 +305,26 @@ export class HudRenderer implements IUiRenderer {
     this.raidEl = raidEl;
     this.progressionEl = progressionEl;
     this.promptEl = promptEl;
+    this.staminaBarFill = staminaBarFill;
+    this.staminaBarLabel = staminaBarLabel;
     this.summaryModal = summaryModal;
     this.weaponPanel = weaponPanel;
     this.mainMenuOverlay = mainMenuOverlay;
     this.stashButton = stashButton;
     this.startButton = startButton;
     this.crosshair = crosshair;
+    this.crosshairVertical = crosshairVertical;
+    this.crosshairHorizontal = crosshairHorizontal;
+    this.crosshairHitMarker = crosshairHitMarker;
+    this.crosshairHitMarkerTop = crosshairHitMarkerTop;
+    this.crosshairHitMarkerRight = crosshairHitMarkerRight;
+    this.crosshairHitMarkerBottom = crosshairHitMarkerBottom;
+    this.crosshairHitMarkerLeft = crosshairHitMarkerLeft;
+    this.playerHitOverlay = playerHitOverlay;
+    this.playerHitArrow = playerHitArrow;
+    this.armorCrackOverlay = armorCrackOverlay;
+    this.deathBlackoutOverlay = deathBlackoutOverlay;
+    this.raidEndScene = raidEndScene;
     this.updateHud({
       fps: 0,
       accumulatorMs: 0,
@@ -208,6 +370,31 @@ export class HudRenderer implements IUiRenderer {
       currentPenetrationLevel: 2,
       currentMagazine: "24/24",
       isAds: false,
+      stamina: 100,
+      maxStamina: 100,
+      isCrouching: false,
+      isSprinting: false,
+      playerHitIndicatorAngleDeg: 0,
+      playerHitFeedbackStrength: 0,
+      playerHitFeedbackType: "none",
+      playerArmorCrackFlash: 0,
+      enemyHitCrosshairAngleDeg: 0,
+      enemyHitFeedbackStrength: 0,
+      enemyHitHeadshot: false,
+      enemyHitBlockedArmor: "none",
+      deathAnimationActive: false,
+      deathAnimationProgress: 0,
+      deathBlackout: 0,
+      raidEndSceneActive: false,
+      raidEndScreenTitle: "",
+      raidEndScreenSubtitle: "",
+      raidEndScreenIndex: 1,
+      raidEndScreenTotal: 1,
+      raidEndShowDamageReport: false,
+      raidEndDamageLines: [],
+      raidEndBackpackItems: [],
+      raidEndStashItems: [],
+      raidEndOverviewLines: [],
     });
   }
 
@@ -226,9 +413,18 @@ export class HudRenderer implements IUiRenderer {
       !this.lootEl ||
       !this.raidEl ||
       !this.progressionEl ||
-      !this.promptEl
+      !this.promptEl ||
+      !this.staminaBarFill ||
+      !this.staminaBarLabel
     ) {
       return;
+    }
+
+    if (this.root) {
+      this.root.style.display = state.raidEndSceneActive ? "none" : "grid";
+    }
+    if (this.inventoryPanel && state.raidEndSceneActive) {
+      this.inventoryPanel.style.display = "none";
     }
 
     this.fpsEl.textContent = `FPS: ${state.fps.toFixed(1)}`;
@@ -253,6 +449,11 @@ export class HudRenderer implements IUiRenderer {
       `Equipment: ${state.equipmentStatus} | Crafting: ${state.craftingStatus}`;
     this.promptEl.textContent =
       `Prompt: ${state.interactionPrompt}${state.activeExtractionZoneId ? ` | Active Exfil: ${state.activeExtractionZoneId}` : ""}`;
+    const staminaPct = state.maxStamina > 0 ? Math.max(0, Math.min(1, state.stamina / state.maxStamina)) : 0;
+    this.staminaBarFill.style.width = `${(staminaPct * 100).toFixed(1)}%`;
+    this.staminaBarFill.style.background = staminaPct > 0.5 ? "#22c55e" : staminaPct > 0.25 ? "#eab308" : "#ef4444";
+    const movementState = state.isSprinting ? "SPRINT" : state.isCrouching ? "CROUCH" : "WALK";
+    this.staminaBarLabel.textContent = `Stamina: ${state.stamina.toFixed(0)}/${state.maxStamina.toFixed(0)} | ${movementState}`;
     if (this.weaponPanel) {
       this.weaponPanel.style.display = state.inMainMenu ? "none" : "block";
       this.weaponPanel.textContent =
@@ -264,8 +465,11 @@ export class HudRenderer implements IUiRenderer {
     this.renderSummaryModal(state);
     this.renderMainMenu(state);
     if (this.crosshair) {
-      this.crosshair.style.display = state.inMainMenu ? "none" : "block";
+      this.crosshair.style.display = state.inMainMenu || state.raidEndSceneActive ? "none" : "block";
     }
+    this.renderHitFeedback(state);
+    this.renderDeathOverlay(state);
+    this.renderRaidEndScene(state);
   }
 
   dispose(): void {
@@ -283,12 +487,26 @@ export class HudRenderer implements IUiRenderer {
     this.raidEl = null;
     this.progressionEl = null;
     this.promptEl = null;
+    this.staminaBarFill = null;
+    this.staminaBarLabel = null;
     this.summaryModal = null;
     this.weaponPanel = null;
     this.mainMenuOverlay = null;
     this.stashButton = null;
     this.startButton = null;
     this.crosshair = null;
+    this.crosshairVertical = null;
+    this.crosshairHorizontal = null;
+    this.crosshairHitMarker = null;
+    this.crosshairHitMarkerTop = null;
+    this.crosshairHitMarkerRight = null;
+    this.crosshairHitMarkerBottom = null;
+    this.crosshairHitMarkerLeft = null;
+    this.playerHitOverlay = null;
+    this.playerHitArrow = null;
+    this.armorCrackOverlay = null;
+    this.deathBlackoutOverlay = null;
+    this.raidEndScene = null;
   }
 
   private renderInventoryPanel(state: HudState): void {
@@ -376,7 +594,13 @@ export class HudRenderer implements IUiRenderer {
       return;
     }
 
-    const showFailureSummary = state.sessionOutcome === "died" || state.sessionOutcome === "timeout";
+    if (state.raidEndSceneActive) {
+      this.summaryModal.style.display = "none";
+      this.summaryModal.innerHTML = "";
+      return;
+    }
+
+    const showFailureSummary = !state.inMainMenu && (state.sessionOutcome === "died" || state.sessionOutcome === "timeout");
     if (!showFailureSummary) {
       this.summaryModal.style.display = "none";
       this.summaryModal.innerHTML = "";
@@ -424,6 +648,160 @@ export class HudRenderer implements IUiRenderer {
       return;
     }
 
-    this.mainMenuOverlay.style.display = state.inMainMenu ? "block" : "none";
+    this.mainMenuOverlay.style.display = state.inMainMenu && !state.raidEndSceneActive ? "block" : "none";
+  }
+
+  private renderHitFeedback(state: HudState): void {
+    if (!this.playerHitOverlay || !this.playerHitArrow || !this.armorCrackOverlay || !this.crosshair) {
+      return;
+    }
+
+    const hitColor = state.playerHitFeedbackType === "blocked"
+      ? `rgba(248,250,252,${(state.playerHitFeedbackStrength * 0.2).toFixed(3)})`
+      : `rgba(239,68,68,${(state.playerHitFeedbackStrength * 0.24).toFixed(3)})`;
+    this.playerHitOverlay.style.background = hitColor;
+
+    this.playerHitArrow.style.opacity = state.playerHitFeedbackStrength.toFixed(3);
+    this.playerHitArrow.style.transform =
+      `translate(-50%, -130px) rotate(${state.playerHitIndicatorAngleDeg.toFixed(1)}deg) scale(${(1 + state.playerHitFeedbackStrength * 0.2).toFixed(3)})`;
+
+    this.armorCrackOverlay.style.opacity = (state.playerArmorCrackFlash * 0.6).toFixed(3);
+
+    if (this.crosshairVertical && this.crosshairHorizontal) {
+      const alpha = 0.55 + state.enemyHitFeedbackStrength * 0.45;
+      const blockedColor = state.enemyHitBlockedArmor === "helmet"
+        ? "#22d3ee"
+        : state.enemyHitBlockedArmor === "vest"
+          ? "#38bdf8"
+          : "#f8fafc";
+      this.crosshairVertical.style.background = blockedColor;
+      this.crosshairHorizontal.style.background = blockedColor;
+      this.crosshairVertical.style.opacity = alpha.toFixed(3);
+      this.crosshairHorizontal.style.opacity = alpha.toFixed(3);
+      const base = state.enemyHitHeadshot ? 3 : 2;
+      this.crosshairVertical.style.width = `${base}px`;
+      this.crosshairHorizontal.style.height = `${base}px`;
+      this.crosshair.style.transform = "translate(-50%, -50%)";
+    }
+
+    if (
+      this.crosshairHitMarker &&
+      this.crosshairHitMarkerTop &&
+      this.crosshairHitMarkerRight &&
+      this.crosshairHitMarkerBottom &&
+      this.crosshairHitMarkerLeft
+    ) {
+      const angleRadians = (state.enemyHitCrosshairAngleDeg * Math.PI) / 180;
+      const offsetX = Math.sin(angleRadians) * 13;
+      const offsetY = -Math.cos(angleRadians) * 13;
+      const alpha = state.enemyHitFeedbackStrength;
+      const blockedColor = state.enemyHitBlockedArmor === "helmet"
+        ? "#22d3ee"
+        : state.enemyHitBlockedArmor === "vest"
+          ? "#38bdf8"
+          : "#f8fafc";
+      const thickness = state.enemyHitHeadshot ? 3 : 2;
+      this.crosshairHitMarkerTop.style.background = blockedColor;
+      this.crosshairHitMarkerRight.style.background = blockedColor;
+      this.crosshairHitMarkerBottom.style.background = blockedColor;
+      this.crosshairHitMarkerLeft.style.background = blockedColor;
+      this.crosshairHitMarkerTop.style.height = `${thickness}px`;
+      this.crosshairHitMarkerRight.style.height = `${thickness}px`;
+      this.crosshairHitMarkerBottom.style.height = `${thickness}px`;
+      this.crosshairHitMarkerLeft.style.height = `${thickness}px`;
+      this.crosshairHitMarker.style.opacity = alpha.toFixed(3);
+      this.crosshairHitMarker.style.transform = `translate(-50%, -50%) translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px)`;
+    }
+  }
+
+  private renderDeathOverlay(state: HudState): void {
+    if (!this.deathBlackoutOverlay) {
+      return;
+    }
+
+    this.deathBlackoutOverlay.style.background = `rgba(0, 0, 0, ${state.deathBlackout.toFixed(3)})`;
+  }
+
+  private renderRaidEndScene(state: HudState): void {
+    if (!this.raidEndScene) {
+      return;
+    }
+
+    this.raidEndScene.style.display = state.raidEndSceneActive ? "grid" : "none";
+    if (!state.raidEndSceneActive) {
+      this.raidEndScene.innerHTML = "";
+      return;
+    }
+
+    const title = state.raidEndScreenTitle || "Raid End";
+    const subtitle = state.raidEndScreenSubtitle || "";
+    const page = `${Math.max(1, state.raidEndScreenIndex)}/${Math.max(1, state.raidEndScreenTotal)}`;
+
+    this.raidEndScene.innerHTML = "";
+    const card = document.createElement("div");
+    card.style.margin = "auto";
+    card.style.width = "min(900px, 95vw)";
+    card.style.border = "1px solid rgba(100,116,139,0.45)";
+    card.style.background = "rgba(2,6,23,0.94)";
+    card.style.padding = "24px";
+    const h1 = document.createElement("h2");
+    h1.textContent = `${title}  [${page}]`;
+    h1.style.margin = "0 0 8px 0";
+    const sub = document.createElement("p");
+    sub.textContent = `${subtitle} — Press Enter or Left Click to continue (auto-advances).`;
+    sub.style.margin = "0 0 16px 0";
+    sub.style.color = "#94a3b8";
+    card.append(h1, sub);
+
+    if (title === "Loot and Stash") {
+      const split = document.createElement("div");
+      split.style.display = "grid";
+      split.style.gridTemplateColumns = "1fr 1fr";
+      split.style.gap = "16px";
+      split.append(
+        this.createLootGrid("Backpack", state.raidEndBackpackItems),
+        this.createLootGrid("Stash", state.raidEndStashItems),
+      );
+      card.appendChild(split);
+    } else {
+      const bodyLines = title === "Damage Report"
+        ? state.raidEndDamageLines
+        : title === "Raid Overview"
+          ? state.raidEndOverviewLines
+          : [subtitle];
+      const pre = document.createElement("pre");
+      pre.textContent = bodyLines.join("\n");
+      pre.style.margin = "0";
+      pre.style.whiteSpace = "pre-wrap";
+      pre.style.lineHeight = "1.5";
+      card.appendChild(pre);
+    }
+
+    this.raidEndScene.appendChild(card);
+  }
+
+  private createLootGrid(title: string, items: string[]): HTMLDivElement {
+    const section = document.createElement("div");
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    heading.style.margin = "0 0 8px 0";
+    heading.style.fontSize = "14px";
+    section.appendChild(heading);
+    const grid = document.createElement("div");
+    grid.style.display = "grid";
+    grid.style.gridTemplateColumns = "repeat(2, minmax(0, 1fr))";
+    grid.style.gap = "8px";
+    const itemList = items.length > 0 ? items : ["(empty)"];
+    for (const item of itemList) {
+      const cell = document.createElement("div");
+      cell.textContent = item;
+      cell.style.minHeight = "40px";
+      cell.style.padding = "8px";
+      cell.style.border = "1px solid rgba(148, 163, 184, 0.35)";
+      cell.style.background = "rgba(15, 23, 42, 0.75)";
+      grid.appendChild(cell);
+    }
+    section.appendChild(grid);
+    return section;
   }
 }

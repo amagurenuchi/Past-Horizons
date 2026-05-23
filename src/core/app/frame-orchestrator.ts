@@ -73,13 +73,18 @@ export class FrameOrchestrator {
     this.threeRenderer.updateTransforms({
       player: this.simulation.getPlayerPosition(),
       enemy: this.simulation.getEnemyPosition(),
+      enemyDeathAnimation: this.simulation.getEnemyDeathAnimation(),
       viewAngles: this.simulation.getViewAngles(),
       shotTraces: this.simulation.getShotTraces(),
       extractionMarkers: this.simulation.getExtractionMarkers(),
       inMainMenu: snapshot.inMainMenu,
+      raidEndSceneActive: snapshot.raidEndSceneActive,
       equippedHelmetId: snapshot.equippedHelmetId,
       equippedVestId: snapshot.equippedVestId,
       equippedPrimaryWeaponName: snapshot.equippedPrimaryWeaponName,
+      deathAnimationActive: snapshot.deathAnimationActive,
+      deathAnimationProgress: snapshot.deathAnimationProgress,
+      deathBlackout: snapshot.deathBlackout,
     });
     this.threeRenderer.render(now / 1000);
     this.updateFps(now);

@@ -21,6 +21,7 @@ interface Combatant {
 }
 
 type HitLocation = "head" | "chest" | "limb";
+type ArmorZone = "none" | "helmet" | "vest";
 interface ViewAngles {
   yaw: number;
   pitch: number;
@@ -76,14 +77,48 @@ export interface CombatSnapshot {
   currentPenetrationLevel: number;
   currentMagazine: string;
   isAds: boolean;
+  stamina: number;
+  maxStamina: number;
+  isCrouching: boolean;
+  isSprinting: boolean;
+  playerHitIndicatorAngleDeg: number;
+  playerHitFeedbackStrength: number;
+  playerHitFeedbackType: "none" | "health" | "blocked";
+  playerArmorCrackFlash: number;
+  enemyHitCrosshairAngleDeg: number;
+  enemyHitFeedbackStrength: number;
+  enemyHitHeadshot: boolean;
+  enemyHitBlockedArmor: "none" | "helmet" | "vest";
+  deathAnimationActive: boolean;
+  deathAnimationProgress: number;
+  deathBlackout: number;
+  raidEndSceneActive: boolean;
+  raidEndScreenTitle: string;
+  raidEndScreenSubtitle: string;
+  raidEndScreenIndex: number;
+  raidEndScreenTotal: number;
+  raidEndShowDamageReport: boolean;
+  raidEndDamageLines: string[];
+  raidEndBackpackItems: string[];
+  raidEndStashItems: string[];
+  raidEndOverviewLines: string[];
 }
 
 export class CombatSimulation {
+  private static readonly SPRINT_TO_FIRE_DELAY_SECONDS = 0.15;
+
   private player = {
     x: 0,
     y: 0,
     speed: 4.25,
   };
+  private playerJumpOffset = 0;
+  private playerJumpVelocity = 0;
+  private stamina = 100;
+  private readonly maxStamina = 100;
+  private isCrouching = false;
+  private isSprinting = false;
+  private sprintToFireDelayRemaining = 0;
 
   private readonly playerStats: Combatant = {
     health: 100,
@@ -128,27 +163,60 @@ export class CombatSimulation {
   private shotTraces: ShotTrace[] = [];
   private recoilPitchOffset = 0;
   private recoilYawOffset = 0;
+  private flinchPitchOffset = 0;
+  private flinchYawOffset = 0;
   private isAds = false;
   private isReloading = false;
   private reloadRemainingSeconds = 0;
   private reloadPressedLastFrame = false;
+  private jumpPressedLastFrame = false;
+  private playerHitFeedbackStrength = 0;
+  private playerHitFeedbackType: "none" | "health" | "blocked" = "none";
+  private playerHitIndicatorAngleDeg = 0;
+  private playerArmorCrackFlash = 0;
+  private enemyHitFeedbackStrength = 0;
+  private enemyHitCrosshairAngleDeg = 0;
+  private enemyHitHeadshot = false;
+  private enemyHitBlockedArmor: ArmorZone = "none";
+  private deathAnimationActive = false;
+  private deathAnimationProgress = 0;
+  private deathBlackout = 0;
+  private pendingDeathLootLoss = 0;
+  private deathSummaryDetails: string[] = [];
+  private raidEndSceneActive = false;
+  private raidEndScreens: Array<{ title: string; subtitle: string }> = [];
+  private raidEndDamageLines: string[] = [];
+  private raidEndBackpackItems: string[] = [];
+  private raidEndStashItems: string[] = [];
+  private raidEndOverviewLines: string[] = [];
+  private raidEndScreenIndex = 0;
+  private raidEndScreenTimerSeconds = 0;
+  private raidEndShowDamageReport = false;
+  private raidEndAdvancePressedLastFrame = false;
+  private enemyDeathAnimationProgress = 0;
+  private enemyDeathAnimationActive = false;
 
   constructor(private readonly input: IInputService) {}
 
   step(deltaSeconds: number): void {
-    if (this.sessionManager.isInMainMenu() && this.input.isPointerLocked()) {
+    if ((this.sessionManager.isInMainMenu() || this.raidEndSceneActive) && this.input.isPointerLocked()) {
       this.input.releasePointerLock();
+    }
+    if (this.sessionManager.isInMainMenu()) {
+      this.isCrouching = false;
+      this.isSprinting = false;
     }
 
     this.stepInventoryToggle();
     this.stepQuickUseWheel();
-    if (!this.sessionManager.isInMainMenu()) {
+    if (!this.sessionManager.isInMainMenu() && !this.deathAnimationActive) {
       this.stepAimState();
       this.stepReload(deltaSeconds);
       this.stepMouseLook();
       this.stepMovement(deltaSeconds);
+      this.stepJump(deltaSeconds);
     }
-    if (this.sessionManager.getOutcome() === "active" && !this.sessionManager.isInMainMenu()) {
+    if (this.sessionManager.getOutcome() === "active" && !this.sessionManager.isInMainMenu() && !this.deathAnimationActive) {
       this.stepShooting(deltaSeconds);
       this.stepEnemyBehavior(deltaSeconds);
     }
@@ -157,6 +225,10 @@ export class CombatSimulation {
     this.stepCrafting();
     this.stepShotTraces(deltaSeconds);
     this.stepRecoilRecovery(deltaSeconds);
+    this.stepHitFeedback(deltaSeconds);
+    this.stepDeathAnimation(deltaSeconds);
+    this.stepEnemyDeathAnimation(deltaSeconds);
+    this.stepRaidEndScene(deltaSeconds);
   }
 
   getSnapshot(): CombatSnapshot {
@@ -206,6 +278,31 @@ export class CombatSimulation {
         ? `${this.ammoInMagazine}/${this.magazineCapacity} (reloading ${this.reloadRemainingSeconds.toFixed(1)}s)`
         : `${this.ammoInMagazine}/${this.magazineCapacity}`,
       isAds: this.isAds,
+      stamina: this.stamina,
+      maxStamina: this.maxStamina,
+      isCrouching: this.isCrouching,
+      isSprinting: this.isSprinting,
+      playerHitIndicatorAngleDeg: this.playerHitIndicatorAngleDeg,
+      playerHitFeedbackStrength: this.playerHitFeedbackStrength,
+      playerHitFeedbackType: this.playerHitFeedbackType,
+      playerArmorCrackFlash: this.playerArmorCrackFlash,
+      enemyHitCrosshairAngleDeg: this.enemyHitCrosshairAngleDeg,
+      enemyHitFeedbackStrength: this.enemyHitFeedbackStrength,
+      enemyHitHeadshot: this.enemyHitHeadshot,
+      enemyHitBlockedArmor: this.enemyHitBlockedArmor,
+      deathAnimationActive: this.deathAnimationActive,
+      deathAnimationProgress: this.deathAnimationProgress,
+      deathBlackout: this.deathBlackout,
+      raidEndSceneActive: this.raidEndSceneActive,
+      raidEndScreenTitle: this.raidEndScreens[this.raidEndScreenIndex]?.title ?? "",
+      raidEndScreenSubtitle: this.raidEndScreens[this.raidEndScreenIndex]?.subtitle ?? "",
+      raidEndScreenIndex: this.raidEndScreenIndex + 1,
+      raidEndScreenTotal: this.raidEndScreens.length,
+      raidEndShowDamageReport: this.raidEndShowDamageReport,
+      raidEndDamageLines: this.raidEndDamageLines,
+      raidEndBackpackItems: this.raidEndBackpackItems,
+      raidEndStashItems: this.raidEndStashItems,
+      raidEndOverviewLines: this.raidEndOverviewLines,
     };
   }
 
@@ -225,7 +322,7 @@ export class CombatSimulation {
   }
 
   startRaidFromMenu(): void {
-    if (!this.sessionManager.isInMainMenu()) {
+    if (!this.sessionManager.isInMainMenu() || this.raidEndSceneActive) {
       return;
     }
 
@@ -245,10 +342,42 @@ export class CombatSimulation {
     this.reloadRemainingSeconds = 0;
     this.recoilPitchOffset = 0;
     this.recoilYawOffset = 0;
+    this.flinchPitchOffset = 0;
+    this.flinchYawOffset = 0;
     this.isAds = false;
     this.reloadPressedLastFrame = false;
+    this.jumpPressedLastFrame = false;
+    this.playerJumpOffset = 0;
+    this.playerJumpVelocity = 0;
+    this.stamina = this.maxStamina;
+    this.isCrouching = false;
+    this.isSprinting = false;
+    this.sprintToFireDelayRemaining = 0;
     this.nearbyLootLabel = "none";
     this.previousOutcome = "active";
+    this.playerHitFeedbackStrength = 0;
+    this.playerHitFeedbackType = "none";
+    this.playerHitIndicatorAngleDeg = 0;
+    this.playerArmorCrackFlash = 0;
+    this.enemyHitFeedbackStrength = 0;
+    this.enemyHitCrosshairAngleDeg = 0;
+    this.enemyHitHeadshot = false;
+    this.enemyHitBlockedArmor = "none";
+    this.deathAnimationActive = false;
+    this.deathAnimationProgress = 0;
+    this.deathBlackout = 0;
+    this.pendingDeathLootLoss = 0;
+    this.deathSummaryDetails = [];
+    this.raidEndSceneActive = false;
+    this.raidEndScreens = [];
+    this.raidEndDamageLines = [];
+    this.raidEndBackpackItems = [];
+    this.raidEndStashItems = [];
+    this.raidEndOverviewLines = [];
+    this.raidEndScreenIndex = 0;
+    this.raidEndScreenTimerSeconds = 0;
+    this.raidEndAdvancePressedLastFrame = false;
+    this.raidEndShowDamageReport = false;
     this.damageTakenByBodyPart.head = 0;
     this.damageTakenByBodyPart.chest = 0;
     this.damageTakenByBodyPart.limb = 0;
@@ -259,21 +388,27 @@ export class CombatSimulation {
     this.enemyStats.health = 120;
     this.enemyStats.helmet = this.createArmor(3);
     this.enemyStats.vest = this.createArmor(3);
+    this.enemyDeathAnimationProgress = 0;
+    this.enemyDeathAnimationActive = false;
     this.input.requestPointerLock();
   }
 
-  getPlayerPosition(): { x: number; y: number } {
-    return { x: this.player.x, y: this.player.y };
+  getPlayerPosition(): { x: number; y: number; jumpOffset: number } {
+    return { x: this.player.x, y: this.player.y, jumpOffset: this.getPlayerHeightOffset() };
   }
 
   getEnemyPosition(): { x: number; y: number } {
     return { x: this.enemyX, y: 0 };
   }
 
+  getEnemyDeathAnimation(): { active: boolean; progress: number } {
+    return { active: this.enemyDeathAnimationActive, progress: this.enemyDeathAnimationProgress };
+  }
+
   getViewAngles(): ViewAngles {
     return {
-      yaw: this.viewAngles.yaw + this.recoilYawOffset,
-      pitch: this.viewAngles.pitch + this.recoilPitchOffset,
+      yaw: this.viewAngles.yaw + this.recoilYawOffset + this.flinchYawOffset,
+      pitch: this.viewAngles.pitch + this.recoilPitchOffset + this.flinchPitchOffset,
     };
   }
 
@@ -318,6 +453,31 @@ export class CombatSimulation {
       moveY /= magnitude;
     }
 
+    this.isCrouching = this.input.isPressed("crouch");
+    const sprintPressed = this.input.isPressed("sprint");
+    const wantsToShoot = this.input.isPressed("shoot") || this.input.isPressed("shootMouse");
+    const canSprint =
+      sprintPressed &&
+      magnitude > 0 &&
+      !this.isCrouching &&
+      !wantsToShoot &&
+      this.playerJumpOffset <= 0 &&
+      this.stamina > 0;
+    this.isSprinting = canSprint;
+
+    const sprintDrainPerSecond = this.maxStamina / 30;
+    const staminaRegenPerSecond = this.isCrouching ? 16 : 22;
+    if (this.isSprinting) {
+      this.stamina = Math.max(0, this.stamina - sprintDrainPerSecond * deltaSeconds);
+      if (this.stamina <= 0) {
+        this.isSprinting = false;
+      }
+      this.sprintToFireDelayRemaining = CombatSimulation.SPRINT_TO_FIRE_DELAY_SECONDS;
+    } else {
+      this.stamina = Math.min(this.maxStamina, this.stamina + staminaRegenPerSecond * deltaSeconds);
+      this.sprintToFireDelayRemaining = Math.max(0, this.sprintToFireDelayRemaining - deltaSeconds);
+    }
+
     const forwardX = Math.sin(this.viewAngles.yaw);
     const forwardY = -Math.cos(this.viewAngles.yaw);
     const rightX = Math.cos(this.viewAngles.yaw);
@@ -326,13 +486,37 @@ export class CombatSimulation {
     const worldX = rightX * moveX + forwardX * moveY;
     const worldY = rightY * moveX + forwardY * moveY;
 
-    this.player.x += worldX * this.player.speed * deltaSeconds;
-    this.player.y += worldY * this.player.speed * deltaSeconds;
+    const crouchSpeedScale = 0.55;
+    const sprintSpeedScale = 1.65;
+    const speedScale = this.isCrouching ? crouchSpeedScale : this.isSprinting ? sprintSpeedScale : 1;
+    this.player.x += worldX * this.player.speed * speedScale * deltaSeconds;
+    this.player.y += worldY * this.player.speed * speedScale * deltaSeconds;
+  }
+
+  private stepJump(deltaSeconds: number): void {
+    const jumpPressed = this.input.isPressed("jump");
+    const isGrounded = this.playerJumpOffset <= 0;
+    if (jumpPressed && !this.jumpPressedLastFrame && isGrounded) {
+      this.playerJumpVelocity = 4.8;
+    }
+    this.jumpPressedLastFrame = jumpPressed;
+
+    this.playerJumpVelocity -= 13 * deltaSeconds;
+    this.playerJumpOffset += this.playerJumpVelocity * deltaSeconds;
+    if (this.playerJumpOffset <= 0) {
+      this.playerJumpOffset = 0;
+      this.playerJumpVelocity = 0;
+    }
   }
 
   private stepShooting(deltaSeconds: number): void {
+    if (this.deathAnimationActive || this.raidEndSceneActive) {
+      return;
+    }
     this.timeToNextShot -= deltaSeconds;
-
+    if (this.isSprinting || this.sprintToFireDelayRemaining > 0) {
+      return;
+    }
     if (!this.input.isPressed("shoot") && !this.input.isPressed("shootMouse")) {
       return;
     }
@@ -343,6 +527,19 @@ export class CombatSimulation {
 
     this.timeToNextShot = 1 / this.weapon.roundsPerSecond;
     this.ammoInMagazine -= 1;
+    const forward = this.getForwardVector();
+    const cameraOrigin = { x: this.player.x, y: 1.65 + this.getPlayerHeightOffset(), z: this.player.y };
+    const didHitEnemy = this.getEnemyIntersectionDistance(cameraOrigin, forward) !== null;
+
+    if (!didHitEnemy) {
+      this.createShotTrace();
+      // Recoil kick: lower while ADS for better control.
+      const missPitchKick = this.isAds ? 0.006 : 0.012;
+      const missYawKick = (Math.random() - 0.5) * (this.isAds ? 0.003 : 0.008);
+      this.recoilPitchOffset += missPitchKick;
+      this.recoilYawOffset += missYawKick;
+      return;
+    }
 
     const hitLocation = this.pickHitLocation();
     const routedDamage = calculateDamage({
@@ -354,8 +551,12 @@ export class CombatSimulation {
       ammoProfile: this.weapon.ammoProfile,
     });
 
-    this.applyDamage(this.enemyStats, routedDamage.healthDamage, routedDamage.armorDamage, hitLocation);
+    const enemyHit = this.applyDamage(this.enemyStats, routedDamage.healthDamage, routedDamage.armorDamage, hitLocation);
     this.damageDealtToEnemy += routedDamage.healthDamage + routedDamage.armorDamage;
+    this.enemyHitFeedbackStrength = 1;
+    this.enemyHitCrosshairAngleDeg = this.getCrosshairAngleForHit(hitLocation);
+    this.enemyHitHeadshot = hitLocation === "head";
+    this.enemyHitBlockedArmor = !routedDamage.penetrated && enemyHit.armorZone !== "none" ? enemyHit.armorZone : "none";
     this.createShotTrace();
 
     // Recoil kick: lower while ADS for better control.
@@ -404,6 +605,9 @@ export class CombatSimulation {
     const damp = Math.exp(-recovery * deltaSeconds);
     this.recoilPitchOffset *= damp;
     this.recoilYawOffset *= damp;
+    const flinchDamp = Math.exp(-9 * deltaSeconds);
+    this.flinchPitchOffset *= flinchDamp;
+    this.flinchYawOffset *= flinchDamp;
   }
 
   private stepShotTraces(deltaSeconds: number): void {
@@ -412,11 +616,87 @@ export class CombatSimulation {
       .filter((trace) => trace.ttlSeconds > 0);
   }
 
+  private stepHitFeedback(deltaSeconds: number): void {
+    this.playerHitFeedbackStrength = Math.max(0, this.playerHitFeedbackStrength - deltaSeconds * 2.6);
+    if (this.playerHitFeedbackStrength <= 0.01) {
+      this.playerHitFeedbackType = "none";
+    }
+    this.playerArmorCrackFlash = Math.max(0, this.playerArmorCrackFlash - deltaSeconds * 7);
+    this.enemyHitFeedbackStrength = Math.max(0, this.enemyHitFeedbackStrength - deltaSeconds * 5);
+    if (this.enemyHitFeedbackStrength <= 0.01) {
+      this.enemyHitHeadshot = false;
+      this.enemyHitBlockedArmor = "none";
+    }
+  }
+
+  private stepDeathAnimation(deltaSeconds: number): void {
+    if (!this.deathAnimationActive) {
+      return;
+    }
+
+    this.deathAnimationProgress = Math.min(1, this.deathAnimationProgress + deltaSeconds / 1.8);
+    this.deathBlackout = this.deathAnimationProgress > 0.68
+      ? Math.min(1, (this.deathAnimationProgress - 0.68) / 0.32)
+      : 0;
+
+    if (this.deathAnimationProgress >= 1) {
+      const details = this.buildFailureRaidDetails("died");
+      const lost = this.inventory.clearBackpackOnDeath();
+      this.pendingDeathLootLoss = lost;
+      this.deathSummaryDetails = details;
+      this.sessionManager.endAsDeath(lost, details);
+      this.previousOutcome = "died";
+      this.deathAnimationActive = false;
+      this.beginRaidEndSequence("died", 0, details);
+    }
+  }
+
+  private stepEnemyDeathAnimation(deltaSeconds: number): void {
+    if (this.enemyStats.health <= 0) {
+      this.enemyDeathAnimationActive = true;
+    }
+    if (!this.enemyDeathAnimationActive) {
+      return;
+    }
+
+    this.enemyDeathAnimationProgress = Math.min(1, this.enemyDeathAnimationProgress + deltaSeconds / 0.8);
+  }
+
+  private stepRaidEndScene(deltaSeconds: number): void {
+    if (!this.raidEndSceneActive || this.raidEndScreens.length === 0) {
+      this.raidEndAdvancePressedLastFrame = this.input.isPressed("advanceRaidEndScreen") || this.input.isPressed("shootMouse");
+      return;
+    }
+
+    const advancePressed = this.input.isPressed("advanceRaidEndScreen") || this.input.isPressed("shootMouse");
+    const consumeManualAdvance = advancePressed && !this.raidEndAdvancePressedLastFrame;
+    this.raidEndAdvancePressedLastFrame = advancePressed;
+
+    this.raidEndScreenTimerSeconds += deltaSeconds;
+    if (!consumeManualAdvance && this.raidEndScreenTimerSeconds < 2.3) {
+      return;
+    }
+
+    this.raidEndScreenTimerSeconds = 0;
+    this.raidEndScreenIndex += 1;
+    if (this.raidEndScreenIndex >= this.raidEndScreens.length) {
+      this.raidEndSceneActive = false;
+      this.raidEndScreens = [];
+      this.raidEndDamageLines = [];
+      this.raidEndBackpackItems = [];
+      this.raidEndStashItems = [];
+      this.raidEndOverviewLines = [];
+      this.raidEndScreenIndex = 0;
+      this.raidEndShowDamageReport = false;
+      this.raidEndAdvancePressedLastFrame = false;
+    }
+  }
+
   private createShotTrace(): void {
     this.shotTraceCounter += 1;
     const forward = this.getForwardVector();
     const right = this.getRightVector();
-    const cameraOrigin = { x: this.player.x, y: 1.65, z: this.player.y };
+    const cameraOrigin = { x: this.player.x, y: 1.65 + this.getPlayerHeightOffset(), z: this.player.y };
     const muzzle = {
       x: cameraOrigin.x + right.x * 0.16,
       y: cameraOrigin.y - 0.08,
@@ -456,6 +736,11 @@ export class CombatSimulation {
     };
   }
 
+  private getPlayerHeightOffset(): number {
+    const crouchOffset = this.isCrouching ? -0.45 : 0;
+    return this.playerJumpOffset + crouchOffset;
+  }
+
   private resolveAimHitDistance(
     origin: { x: number; y: number; z: number },
     direction: { x: number; y: number; z: number },
@@ -464,20 +749,9 @@ export class CombatSimulation {
     let best = maxDistance;
 
     // Intersect with enemy proxy sphere first (closest positive hit wins).
-    const enemyCenter = { x: this.enemyX, y: 1.0, z: 0 };
-    const enemyRadius = 0.72;
-    const ox = origin.x - enemyCenter.x;
-    const oy = origin.y - enemyCenter.y;
-    const oz = origin.z - enemyCenter.z;
-    const b = ox * direction.x + oy * direction.y + oz * direction.z;
-    const c = ox * ox + oy * oy + oz * oz - enemyRadius * enemyRadius;
-    const disc = b * b - c;
-    if (disc >= 0) {
-      const sqrtDisc = Math.sqrt(disc);
-      const t1 = -b - sqrtDisc;
-      const t2 = -b + sqrtDisc;
-      if (t1 > 0 && t1 < best) best = t1;
-      else if (t2 > 0 && t2 < best) best = t2;
+    const enemyHitDistance = this.getEnemyIntersectionDistance(origin, direction);
+    if (enemyHitDistance !== null && enemyHitDistance < best) {
+      best = enemyHitDistance;
     }
 
     // Intersect with ground plane y=0.
@@ -489,6 +763,35 @@ export class CombatSimulation {
     }
 
     return Math.max(0.5, Math.min(best, maxDistance));
+  }
+
+  private getEnemyIntersectionDistance(
+    origin: { x: number; y: number; z: number },
+    direction: { x: number; y: number; z: number },
+  ): number | null {
+    const enemyCenter = { x: this.enemyX, y: 1.0, z: 0 };
+    const enemyRadius = 0.72;
+    const ox = origin.x - enemyCenter.x;
+    const oy = origin.y - enemyCenter.y;
+    const oz = origin.z - enemyCenter.z;
+    const b = ox * direction.x + oy * direction.y + oz * direction.z;
+    const c = ox * ox + oy * oy + oz * oz - enemyRadius * enemyRadius;
+    const disc = b * b - c;
+    if (disc < 0) {
+      return null;
+    }
+
+    const sqrtDisc = Math.sqrt(disc);
+    const t1 = -b - sqrtDisc;
+    const t2 = -b + sqrtDisc;
+    if (t1 > 0) {
+      return t1;
+    }
+    if (t2 > 0) {
+      return t2;
+    }
+
+    return null;
   }
 
   private stepEnemyBehavior(deltaSeconds: number): void {
@@ -522,8 +825,17 @@ export class CombatSimulation {
       baseDamage: 8,
       ammoProfile: "standard",
     });
-    this.applyDamage(this.playerStats, incomingDamage.healthDamage, incomingDamage.armorDamage, hitLocation);
+    const playerHit = this.applyDamage(this.playerStats, incomingDamage.healthDamage, incomingDamage.armorDamage, hitLocation);
     this.damageTakenByBodyPart[hitLocation] += incomingDamage.healthDamage + incomingDamage.armorDamage;
+    this.playerHitFeedbackStrength = 1;
+    const blockedByArmor = !incomingDamage.penetrated && playerHit.armorZone !== "none" && incomingDamage.healthDamage <= 0;
+    this.playerHitFeedbackType = blockedByArmor ? "blocked" : "health";
+    this.playerHitIndicatorAngleDeg = this.getIncomingAttackAngleFromEnemy();
+    this.flinchPitchOffset += blockedByArmor ? 0.009 : 0.02 + Math.random() * 0.01;
+    this.flinchYawOffset += (Math.random() - 0.5) * (blockedByArmor ? 0.015 : 0.03);
+    if (playerHit.armorBroke) {
+      this.playerArmorCrackFlash = 1;
+    }
   }
 
   private stepQuickUseWheel(): void {
@@ -543,7 +855,7 @@ export class CombatSimulation {
   }
 
   private stepInventoryToggle(): void {
-    if (this.sessionManager.isInMainMenu()) {
+    if (this.sessionManager.isInMainMenu() || this.deathAnimationActive || this.raidEndSceneActive) {
       this.inventoryToggleWasPressed = this.input.isPressed("toggleInventory");
       return;
     }
@@ -557,7 +869,7 @@ export class CombatSimulation {
   }
 
   private stepLootInteraction(deltaSeconds: number): void {
-    if (this.sessionManager.isInMainMenu()) {
+    if (this.sessionManager.isInMainMenu() || this.deathAnimationActive || this.raidEndSceneActive) {
       this.nearbyLootLabel = "none";
       this.pickupWasPressed = this.input.isPressed("pickupLoot");
       return;
@@ -594,6 +906,11 @@ export class CombatSimulation {
   }
 
   private stepExtractionAndSession(deltaSeconds: number): void {
+    if (this.raidEndSceneActive) {
+      this.extractionStatus = "raid debrief";
+      return;
+    }
+
     if (this.sessionManager.isInMainMenu()) {
       this.extractionStatus = "returned to main menu";
       return;
@@ -604,19 +921,26 @@ export class CombatSimulation {
       return;
     }
 
-    this.sessionManager.update(deltaSeconds);
-    if (this.sessionManager.getOutcome() === "timeout" && this.previousOutcome === "active") {
-      this.sessionManager.setFailureDetails(this.buildFailureRaidDetails("timeout"));
-      this.extractionStatus = "raid timed out";
-      this.previousOutcome = "timeout";
+    if (this.deathAnimationActive) {
+      this.extractionStatus = "operator down";
       return;
     }
 
-    if (this.playerStats.health <= 0) {
-      const lost = this.inventory.clearBackpackOnDeath();
-      this.sessionManager.endAsDeath(lost, this.buildFailureRaidDetails("died"));
+    this.sessionManager.update(deltaSeconds);
+    if (this.sessionManager.getOutcome() === "timeout" && this.previousOutcome === "active") {
+      const details = this.buildFailureRaidDetails("timeout");
+      this.sessionManager.setFailureDetails(details);
+      this.extractionStatus = "raid timed out";
+      this.previousOutcome = "timeout";
+      this.beginRaidEndSequence("timeout", 0, details);
+      return;
+    }
+
+    if (this.playerStats.health <= 0 && !this.deathAnimationActive) {
+      this.deathAnimationActive = true;
+      this.deathAnimationProgress = 0;
+      this.deathBlackout = 0;
       this.extractionStatus = "killed in raid";
-      this.previousOutcome = "died";
       return;
     }
 
@@ -634,11 +958,12 @@ export class CombatSimulation {
       this.sessionManager.endAsExtracted(moved);
       this.extractionStatus = "extracted";
       this.previousOutcome = "extracted";
+      this.beginRaidEndSequence("extracted", moved);
     }
   }
 
   private stepCrafting(): void {
-    if (this.sessionManager.isInMainMenu()) {
+    if (this.sessionManager.isInMainMenu() || this.deathAnimationActive || this.raidEndSceneActive) {
       this.craftWasPressed = this.input.isPressed("craftItem");
       return;
     }
@@ -657,16 +982,21 @@ export class CombatSimulation {
     healthDamage: number,
     armorDamage: number,
     hitLocation: HitLocation,
-  ): void {
+  ): { armorZone: ArmorZone; armorBroke: boolean } {
     const armor = this.getArmorForHit(target, hitLocation);
+    const armorZone = hitLocation === "head" ? "helmet" : hitLocation === "chest" ? "vest" : "none";
+    let armorBroke = false;
     if (armor) {
+      const durabilityBefore = armor.durability;
       armor.durability = Math.max(0, armor.durability - armorDamage);
-      if (armor.durability <= 0) {
+      if (armor.durability <= 0 && durabilityBefore > 0) {
         armor.tier = 0;
+        armorBroke = true;
       }
     }
 
     target.health = Math.max(0, target.health - healthDamage);
+    return { armorZone, armorBroke };
   }
 
   private createArmor(tier: number): ArmorPiece {
@@ -713,6 +1043,80 @@ export class CombatSimulation {
       `Damage sustained - limbs: ${this.damageTakenByBodyPart.limb.toFixed(1)}`,
       `Damage dealt to enemy before failure: ${this.damageDealtToEnemy.toFixed(1)}`,
     ];
+  }
+
+  private beginRaidEndSequence(outcome: "extracted" | "died" | "timeout", lootMovedToStash: number, details?: string[]): void {
+    const summary = this.sessionManager.getSummary();
+    const damageLines = details ?? summary.details;
+    const backpackItems = this.listInventoryItems("backpack");
+    const stashItems = this.listInventoryItems("stash");
+    const overviewLines = [
+      `Outcome: ${summary.outcome}`,
+      `Timer at end: ${this.formatRaidTimer()}`,
+      `Damage dealt: ${this.damageDealtToEnemy.toFixed(1)}`,
+      `Damage taken: ${(this.damageTakenByBodyPart.head + this.damageTakenByBodyPart.chest + this.damageTakenByBodyPart.limb).toFixed(1)}`,
+      `Loot moved to stash: ${summary.lootMovedToStash || lootMovedToStash}`,
+      `Loot lost on death: ${summary.lootLostOnDeath}`,
+    ];
+
+    const screens: Array<{ title: string; subtitle: string }> = [];
+    screens.push({
+      title: "Extraction Status",
+      subtitle: outcome === "extracted" ? "Extraction successful" : outcome === "timeout" ? "Raid timed out" : "Operator KIA",
+    });
+    if (outcome !== "extracted") {
+      screens.push({
+        title: "Damage Report",
+        subtitle: "Last known combat telemetry",
+      });
+    }
+    screens.push({
+      title: "Loot and Stash",
+      subtitle: "Backpack haul versus current stash state",
+    });
+    screens.push({
+      title: "Raid Overview",
+      subtitle: "Session totals before redeploy",
+    });
+
+    this.raidEndSceneActive = true;
+    this.raidEndScreens = screens;
+    this.raidEndDamageLines = damageLines;
+    this.raidEndBackpackItems = backpackItems;
+    this.raidEndStashItems = stashItems;
+    this.raidEndOverviewLines = overviewLines;
+    this.raidEndShowDamageReport = outcome !== "extracted";
+    this.raidEndScreenIndex = 0;
+    this.raidEndScreenTimerSeconds = 0;
+  }
+
+  private listInventoryItems(container: InventoryContainerKey): string[] {
+    const view = this.inventory.getInventoryView().containers.find((entry) => entry.key === container);
+    if (!view) {
+      return [];
+    }
+
+    return view.slots
+      .filter((slot) => slot.label)
+      .map((slot) => `${slot.label ?? "Unknown"} x${slot.quantity}`);
+  }
+
+  private getIncomingAttackAngleFromEnemy(): number {
+    const dx = this.enemyX - this.player.x;
+    const dz = 0 - this.player.y;
+    const worldAngle = Math.atan2(dx, -dz);
+    const relative = worldAngle - this.viewAngles.yaw;
+    return (relative * 180) / Math.PI;
+  }
+
+  private getCrosshairAngleForHit(hitLocation: HitLocation): number {
+    if (hitLocation === "head") {
+      return 0;
+    }
+    if (hitLocation === "chest") {
+      return -20;
+    }
+    return 32;
   }
 
   private buildInteractionPrompt(): string {
